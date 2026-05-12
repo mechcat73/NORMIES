@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Normie 3D - Yüksek Kontrastlı Silüet (V12)</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; color: #0f0; font-family: 'Courier New', monospace; }
+        #ui { position: absolute; top: 15px; left: 15px; z-index: 100; background: rgba(0,0,0,0.95); padding: 20px; border: 1px solid #0f0; width: 340px; box-shadow: 0 0 20px rgba(0,255,0,0.4); border-radius: 4px; }
+        input { width: 68%; background: #111; color: #0f0; border: 1px solid #0f0; padding: 10px; font-weight: bold; font-family: inherit; font-size: 14px;}
+        button { width: 30%; background: #0f0; color: #000; border: none; padding: 10px; cursor: pointer; font-weight: bold; font-size: 14px;}
+        button:hover { opacity: 0.8; }
+        .label { font-size: 12px; margin-top: 15px; color: #fff; }
+        #status { font-size: 11px; margin-top: 15px; color: #888; border-top: 1px solid #333; padding-top: 10px; min-height: 50px; line-height: 1.4;}
+        #console-log { font-size: 10px; color: #aaa; margin-top: 10px; max-height: 80px; overflow-y: auto; background: #111; padding: 5px; border: 1px solid #222;}
+        .desc { font-size: 11px; color: #fff; margin-top: 10px; line-height: 1.4; border: 1px solid #333; padding: 5px; }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <h3 style="margin:0; color:#0f0;">ETHEREUM ON-CHAIN ANALYZER</h3>
+        
+        <div class="desc">
+            • <b>Renk:</b> Koyu Antrasit Obje & Beyaz Çevre.<br>
+            • <b>Hacim:</b> 100x100x100 Kübik Dağılım.<br>
+            • <b>Kontrast:</b> Yüksek netlik için eşikleme güncellendi.
+        </div>
+
+        <div class="label">Token ID Girin (0 - 8182):</div>
+        <div style="display: flex; justify-content: space-between; margin-top:5px;">
+            <input type="number" id="tokenId" placeholder="Örn: 1" value="0">
+            <button onclick="fetchAndAnalyzeNFT()">YÜKLE</button>
+        </div>
+
+        <div id="status">Hazır. ID girip YÜKLE'ye basın.</div>
+        <div id="console-log">Sistem günlükleri...</div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js" type="application/javascript"></script>
+
+    <script>
+        function logToUI(message, type = 'info') {
+            const consoleLog = document.getElementById('console-log');
+            const time = new Date().toLocaleTimeString();
+            consoleLog.innerHTML += `<div style="color:${type === 'error' ? 'red' : type === 'success' ? '#0f0' : '#aaa'}">[${time}] ${message}</div>`;
+            consoleLog.scrollTop = consoleLog.scrollHeight;
+        }
+
+        // --- YAPILANDIRMA ---
+        const RPC_URL = "https://ethereum.publicnode.com"; 
+        const CONTRACT_ADDRESS = "0x9Eb6E2025B64f340691e424b7fe7022fFDE12438"; 
+        const CONTRACT_ABI = ["function tokenURI(uint256 tokenId) view returns (string)"];
+
+        // --- THREE.JS KURULUMU ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 4000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.minPolarAngle = Math.PI / 2;
+        controls.maxPolarAngle = Math.PI / 2;
+        controls.enableDamping = true;
+
+        const pixelGroup = new THREE.Group();
+        scene.add(pixelGroup);
+
+        async function fetchAndAnalyzeNFT() {
+            const tokenIdInput = document.getElementById('tokenId').value;
+            const status = document.getElementById('status');
+            
+            while(pixelGroup.children.length > 0) pixelGroup.remove(pixelGroup.children[0]);
+            logToUI(`NFT Çekiliyor: #${tokenIdInput}`);
+
+            try {
+                const provider = new ethers.JsonRpcProvider(RPC_URL);
+                const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+                const tokenURIResponse = await contract.tokenURI(tokenIdInput);
+
+                const base64JSON = tokenURIResponse.split(',')[1];
+                const jsonString = atob(base64JSON);
+                const nftData = JSON.parse(jsonString);
+
+                const img = new Image();
+                img.onload = () => { buildHighContrastCube(img); };
+                img.src = nftData.image;
+
+            } catch (e) {
+                logToUI(`Hata: ${e.message}`, "error");
+            }
+        }
+
+        function buildHighContrastCube(img) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const res = 100; 
+            canvas.width = res;
+            canvas.height = res;
+            ctx.drawImage(img, 0, 0, res, res);
+
+            const data = ctx.getImageData(0, 0, res, res).data;
+            const geometry = new THREE.BoxGeometry(0.95, 0.95, 0.95);
+            let voxelCount = 0;
+
+            for (let y = 0; y < res; y++) {
+                for (let x = 0; x < res; x++) {
+                    const i = (y * res + x) * 4;
+                    const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+
+                    if (a < 128) continue; 
+
+                    const brightness = (r + g + b) / 3;
+                    let finalColor;
+                    
+                    // --- KOYU GRİ & BEYAZ KONTRASTI ---
+                    if (brightness < 160) {
+                        // Gri tonu koyulaştırıldı (#444444)
+                        finalColor = new THREE.Color(0x444444); 
+                    } else {
+                        finalColor = new THREE.Color(0xffffff); 
+                    }
+
+                    const material = new THREE.MeshBasicMaterial({ color: finalColor });
+                    const cube = new THREE.Mesh(geometry, material);
+
+                    // --- TAM KÜP HACMİ ---
+                    const zDepth = res; 
+                    const zPos = (Math.random() - 0.5) * zDepth;
+                    cube.position.set(x - res/2, -y + res/2, zPos);
+                    
+                    pixelGroup.add(cube);
+                    voxelCount++;
+                }
+            }
+
+            logToUI(`${voxelCount} küp ile hacim oluşturuldu.`, "success");
+            camera.position.set(0, 0, res * 1.7);
+            controls.target.set(0,0,0);
+            document.getElementById('status').innerText = "Yüksek Kontrast Analizi Tamamlandı.";
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if(pixelGroup.children.length > 0) pixelGroup.rotation.y += 0.005; 
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
